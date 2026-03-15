@@ -9,141 +9,205 @@ const shuffle = (arr) => {
   return a;
 };
 
-const assignYesReviewers = (names) => {
-  const reviewersPerPerson = 5;
-  const MAX_ATTEMPTS = 100;
+const assignMaybePersonReviewers = (yesNames, maybeNames, targetTotal = 7) => {
+  if (maybeNames.length === 0) return {};
+  const MAX_ATTEMPTS = 200;
+
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const pool = shuffle(
-      names.flatMap((name) => Array(reviewersPerPerson).fill(name)),
-    );
-    const assignments = Object.fromEntries(names.map((n) => [n, []]));
-    let failed = false;
-    for (const reviewer of pool) {
-      const candidates = names.filter(
-        (name) =>
-          name !== reviewer &&
-          assignments[name].length < reviewersPerPerson &&
-          !assignments[name].includes(reviewer),
-      );
-      if (candidates.length === 0) {
-        failed = true;
-        break;
+    const temp = Object.fromEntries(maybeNames.map((n) => [n, []]));
+
+    // Phase 1: every maybe person gets all other maybe people on their list
+    for (const person of maybeNames) {
+      for (const other of maybeNames) {
+        if (other !== person) temp[person].push(other);
       }
-      candidates.sort((a, b) => assignments[a].length - assignments[b].length);
-      assignments[candidates[0]].push(reviewer);
     }
-    if (!failed) return assignments;
+
+    // Phase 2: fill remaining slots to targetTotal with yes people, equally distributed
+    const remaining = targetTotal - (maybeNames.length - 1);
+    if (remaining <= 0) return temp;
+
+    const usageCounts = Object.fromEntries(yesNames.map((n) => [n, 0]));
+    let failed = false;
+
+    for (let slot = 0; slot < remaining; slot++) {
+      for (const person of shuffle([...maybeNames])) {
+        const available = yesNames
+          .filter((n) => !temp[person].includes(n))
+          .sort((a, b) => usageCounts[a] - usageCounts[b]);
+        if (available.length === 0) {
+          failed = true;
+          break;
+        }
+        temp[person].push(available[0]);
+        usageCounts[available[0]]++;
+      }
+      if (failed) break;
+    }
+
+    if (!failed) return temp;
   }
   return null;
 };
 
-const assignMaybeReviewers = (yesNames, maybeNames, assignments) => {
-  const result = {
-    ...Object.fromEntries(
-      Object.entries(assignments).map(([k, v]) => [k, [...v]]),
-    ),
-  };
-  const maybePerPerson = 2;
-  const totalSlots = yesNames.length * maybePerPerson;
-  const baseCount = Math.floor(totalSlots / maybeNames.length);
-  const extra = totalSlots % maybeNames.length;
-  const shuffledMaybe = shuffle([...maybeNames]);
-  const pool = shuffle(
-    shuffledMaybe.flatMap((name, i) =>
-      Array(baseCount + (i < extra ? 1 : 0)).fill(name),
-    ),
-  );
-  let failed = false;
-  for (const maybe of pool) {
-    const candidates = yesNames.filter(
-      (name) =>
-        result[name].filter((r) => maybeNames.includes(r)).length <
-          maybePerPerson && !result[name].includes(maybe),
-    );
-    if (candidates.length === 0) {
-      failed = true;
-      break;
+// All spread checks only count yes names as reviewers, on yes people's lists only
+const computeSpread = (yesNames, combined) => {
+  // Tier 1: yes names in first 3 slots (weighted 100x)
+  const ff3 = yesNames.reduce((acc, name) => {
+    for (const r of (combined[name] ?? []).slice(0, 3)) {
+      if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
     }
-    candidates.sort(
-      (a, b) =>
-        result[a].filter((r) => maybeNames.includes(r)).length -
-        result[b].filter((r) => maybeNames.includes(r)).length,
-    );
-    result[candidates[0]].push(maybe);
-  }
-  return failed ? null : result;
+    return acc;
+  }, {});
+  const ff3Vals = yesNames.map((n) => ff3[n] ?? 0);
+  const ff3Spread = Math.max(...ff3Vals) - Math.min(...ff3Vals);
+
+  // Tier 2: yes names in first 5 slots (weighted 10x)
+  const ff5 = yesNames.reduce((acc, name) => {
+    for (const r of (combined[name] ?? []).slice(0, 5)) {
+      if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+  const ff5Vals = yesNames.map((n) => ff5[n] ?? 0);
+  const ff5Spread = Math.max(...ff5Vals) - Math.min(...ff5Vals);
+
+  // Tier 3: yes names in all 7 slots (weighted 1x)
+  const all = yesNames.reduce((acc, name) => {
+    for (const r of combined[name] ?? []) {
+      if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+  const allVals = yesNames.map((n) => all[n] ?? 0);
+  const allSpread = Math.max(...allVals) - Math.min(...allVals);
+
+  return ff3Spread * 100 + ff5Spread * 10 + allSpread;
 };
 
-const assignMaybePersonReviewers = (yesNames, maybeNames, targetTotal = 7) => {
-  const maybeAssignments = Object.fromEntries(maybeNames.map((n) => [n, []]));
-  const otherMaybePerPerson = Math.min(maybeNames.length - 1, targetTotal);
-  if (otherMaybePerPerson > 0) {
-    const MAX_ATTEMPTS = 100;
+const runOneBuild = (yesNames, maybeNames) => {
+  const allNames = [...yesNames, ...maybeNames];
+  const assignments = Object.fromEntries(yesNames.map((n) => [n, []]));
+  const n = yesNames.length;
+
+  // Phase 1: 3 rounds of cyclic rotation on freshly shuffled orderings
+  // Shuffling the order each round breaks the pattern while keeping perfect balance
+  const usedPairs = new Set(); // track reviewer→person pairs to avoid duplicates
+  for (let round = 0; round < 3; round++) {
+    const shuffledOrder = shuffle([...yesNames]);
+    const offsets = shuffle([...Array(n - 1).keys()].map((i) => i + 1));
     let placed = false;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const pool = shuffle(
-        maybeNames.flatMap((name) => Array(otherMaybePerPerson).fill(name)),
-      );
-      const temp = Object.fromEntries(maybeNames.map((n) => [n, []]));
-      let failed = false;
-      for (const reviewer of pool) {
-        const candidates = maybeNames.filter(
-          (name) =>
-            name !== reviewer &&
-            temp[name].length < otherMaybePerPerson &&
-            !temp[name].includes(reviewer),
-        );
-        if (candidates.length === 0) {
-          failed = true;
+    for (const offset of offsets) {
+      let valid = true;
+      const roundAssignments = [];
+      for (let i = 0; i < n; i++) {
+        const person = shuffledOrder[i];
+        const reviewer = shuffledOrder[(i + offset) % n];
+        const pairKey = `${reviewer}→${person}`;
+        if (
+          reviewer === person ||
+          assignments[person].includes(reviewer) ||
+          usedPairs.has(pairKey)
+        ) {
+          valid = false;
           break;
         }
-        candidates.sort((a, b) => temp[a].length - temp[b].length);
-        temp[candidates[0]].push(reviewer);
+        roundAssignments.push({ person, reviewer, pairKey });
       }
-      if (!failed) {
-        Object.assign(maybeAssignments, temp);
+      if (valid) {
+        for (const { person, reviewer, pairKey } of roundAssignments) {
+          assignments[person].push(reviewer);
+          usedPairs.add(pairKey);
+        }
         placed = true;
         break;
       }
     }
     if (!placed) return null;
   }
-  for (const maybePerson of maybeNames) {
-    const remaining = targetTotal - maybeAssignments[maybePerson].length;
-    if (remaining <= 0) continue;
-    const yesUsageCounts = Object.fromEntries(yesNames.map((n) => [n, 0]));
-    for (const mp of maybeNames) {
-      for (const r of maybeAssignments[mp]) {
-        if (yesNames.includes(r)) yesUsageCounts[r]++;
+
+  // Phase 2: maybe passes
+  const maybePasses = Math.min(maybeNames.length, 2);
+  for (let slot = 0; slot < maybePasses; slot++) {
+    const usageCounts = Object.fromEntries(maybeNames.map((n) => [n, 0]));
+    for (const name of yesNames) {
+      for (const r of assignments[name]) {
+        if (maybeNames.includes(r)) usageCounts[r]++;
       }
     }
-    const available = shuffle(
-      yesNames.filter((y) => !maybeAssignments[maybePerson].includes(y)),
-    );
-    available.sort((a, b) => yesUsageCounts[a] - yesUsageCounts[b]);
-    maybeAssignments[maybePerson].push(...available.slice(0, remaining));
+    for (const person of shuffle([...yesNames])) {
+      const available = maybeNames
+        .filter((n) => !assignments[person].includes(n))
+        .sort((a, b) => usageCounts[a] - usageCounts[b]);
+      if (available.length === 0) return null;
+      assignments[person].push(available[0]);
+      usageCounts[available[0]]++;
+    }
   }
-  return maybeAssignments;
+
+  // Phase 3: fill remaining slots to 7
+  const remainingSlots = 7 - (3 + maybePasses);
+  for (let slot = 0; slot < remainingSlots; slot++) {
+    const usageCounts = Object.fromEntries(allNames.map((n) => [n, 0]));
+    for (const name of yesNames) {
+      for (const r of assignments[name]) usageCounts[r]++;
+    }
+    for (const person of shuffle([...yesNames])) {
+      const available = allNames
+        .filter((n) => n !== person && !assignments[person].includes(n))
+        .sort((a, b) => usageCounts[a] - usageCounts[b]);
+      if (available.length === 0) return null;
+      assignments[person].push(available[0]);
+      usageCounts[available[0]]++;
+    }
+  }
+
+  const maybeAssignments = assignMaybePersonReviewers(yesNames, maybeNames, 7);
+  if (maybeNames.length > 0 && !maybeAssignments) return null;
+
+  return { ...assignments, ...maybeAssignments };
 };
 
 const buildAssignments = (yesNames, maybeNames) => {
-  const MAX_ATTEMPTS = 100;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const yesAssignments = assignYesReviewers(yesNames);
-    if (!yesAssignments) continue;
-    const withMaybe =
-      maybeNames.length === 0
-        ? yesAssignments
-        : assignMaybeReviewers(yesNames, maybeNames, yesAssignments);
-    if (!withMaybe) continue;
-    const maybePersonAssignments =
-      maybeNames.length === 0
-        ? {}
-        : assignMaybePersonReviewers(yesNames, maybeNames, 7);
-    if (maybeNames.length > 0 && !maybePersonAssignments) continue;
-    return { ...withMaybe, ...maybePersonAssignments };
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const combined = runOneBuild(yesNames, maybeNames);
+    if (!combined) continue;
+    if (computeSpread(yesNames, combined) === 0) return combined;
   }
-  return null;
+  let best = null;
+  let bestSpread = Infinity;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const combined = runOneBuild(yesNames, maybeNames);
+    if (!combined) continue;
+    const spread = computeSpread(yesNames, combined);
+    if (spread < bestSpread) {
+      bestSpread = spread;
+      best = combined;
+    }
+    if (bestSpread === 0) break;
+  }
+  return best;
+};
+
+// Stats: count yes-name appearances on yes people's lists only
+const computeYesAppearanceCounts = (yesNames, assignments) => {
+  const counts = Object.fromEntries(yesNames.map((n) => [n, 0]));
+  for (const name of yesNames) {
+    for (const r of assignments?.[name] ?? []) {
+      if (yesNames.includes(r)) counts[r]++;
+    }
+  }
+  return counts;
+};
+
+const computeYesFirstFiveCounts = (yesNames, assignments) => {
+  const counts = Object.fromEntries(yesNames.map((n) => [n, 0]));
+  for (const name of yesNames) {
+    for (const r of (assignments?.[name] ?? []).slice(0, 5)) {
+      if (yesNames.includes(r)) counts[r]++;
+    }
+  }
+  return counts;
 };
 
 const DAYS = [
@@ -203,7 +267,10 @@ const parseEmailsText = (text) => {
 const applyTemplate = (template, reviewer, peers, formattedDate, link) => {
   let result = template.replace(/REVIEWER/g, reviewer);
   peers.forEach((peer, i) => {
-    result = result.replace(new RegExp(`PEER${i + 1}`, "g"), peer);
+    result = result.replace(
+      new RegExp(`PEER${i + 1}`, "g"),
+      peer.toUpperCase(),
+    );
   });
   if (formattedDate) result = result.replace(/DATE/g, formattedDate);
   if (link) result = result.replace(/LINK/g, link);
@@ -215,15 +282,22 @@ const getEmailSubject = (formattedDate) =>
     ? `Peer Reviews Due ${formattedDate}`
     : "Peer Review Assignment";
 
-const downloadArchive = (groups, assignments, formattedDate, link) => {
+const downloadArchive = (
+  groups,
+  assignments,
+  emailTemplate,
+  formattedDate,
+  link,
+) => {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const lines = [];
-  lines.push("RSVP & Peer Review Archive");
+  lines.push("Peer Review Groups Archive");
   lines.push(`Generated: ${new Date().toLocaleString()}`);
   if (formattedDate) lines.push(`Due Date: ${formattedDate}`);
   if (link) lines.push(`Link: ${link}`);
   lines.push("");
   lines.push("=".repeat(50));
+
   for (const { title, names } of [
     { title: "YES", names: groups.yes },
     { title: "MAYBE", names: groups.maybe },
@@ -236,6 +310,30 @@ const downloadArchive = (groups, assignments, formattedDate, link) => {
       lines.push(`${name}: ${peers.join(", ")}`);
     }
   }
+
+  if (emailTemplate?.trim()) {
+    lines.push("");
+    lines.push("=".repeat(50));
+    lines.push("COMPOSED EMAILS");
+    lines.push("=".repeat(50));
+    const allNames = [...(groups.yes ?? []), ...(groups.maybe ?? [])];
+    for (const name of allNames) {
+      const peers = assignments?.[name] ?? [];
+      const composed = applyTemplate(
+        emailTemplate,
+        name,
+        peers,
+        formattedDate,
+        link,
+      );
+      lines.push("");
+      lines.push("");
+      lines.push(`--- ${name} ---`);
+      lines.push("");
+      lines.push(composed);
+    }
+  }
+
   const blob = new Blob([lines.join("\n")], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -319,35 +417,138 @@ const Section = ({
       {title} ({names.length})
     </h2>
     <ul className="list-none p-0">
-      {names.map((name) => (
-        <li key={name} className="py-1.5 text-base">
-          <strong>{name}</strong>
-          {assignments?.[name] && (
-            <span className="text-gray-500 ml-3 text-sm">
-              reviews:{" "}
-              {assignments[name].map((r, i) => (
-                <span key={i}>
-                  {i > 0 && ", "}
-                  <span
-                    style={{
-                      color: maybeNames?.includes(r)
-                        ? "#d97706"
-                        : yesNames?.includes(r)
-                          ? "#16a34a"
-                          : "inherit",
-                    }}
-                  >
-                    {r}
+      {names.map((name) => {
+        const peers = assignments?.[name] ?? [];
+        return (
+          <li key={name} className="py-1.5 text-base">
+            <strong>{name}</strong>
+            {peers.length > 0 && (
+              <span className="text-gray-500 ml-3 text-sm">
+                reviews:{" "}
+                {peers.map((r, i) => (
+                  <span key={i}>
+                    {i > 0 && ", "}
+                    <span
+                      style={{
+                        color: maybeNames?.includes(r)
+                          ? "#d97706"
+                          : yesNames?.includes(r)
+                            ? "#16a34a"
+                            : "inherit",
+                      }}
+                    >
+                      {r}
+                    </span>
                   </span>
-                </span>
-              ))}
-            </span>
-          )}
-        </li>
-      ))}
+                ))}
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   </div>
 );
+
+const StatRow = ({ label, countMap, sorted, groups, avg, min, max }) => (
+  <div className="mb-5">
+    <div className="flex items-center justify-between mb-2">
+      <span className="text-xs font-semibold text-gray-600">{label}</span>
+      <span className="text-xs text-gray-400">
+        min {min} · avg {avg} · max {max}
+      </span>
+    </div>
+    <div className="flex flex-wrap gap-2">
+      {sorted.map((name) => {
+        const count = countMap[name] ?? 0;
+        const isYes = groups.yes?.includes(name);
+        const isMaybe = groups.maybe?.includes(name);
+        const deviation = count - parseFloat(avg);
+        const bg =
+          deviation > 1 ? "#fee2e2" : deviation < -1 ? "#dbeafe" : "#f0fdf4";
+        const border =
+          deviation > 1 ? "#fca5a5" : deviation < -1 ? "#93c5fd" : "#86efac";
+        return (
+          <div
+            key={name}
+            style={{ background: bg, borderColor: border }}
+            className="border rounded-lg px-3 py-1.5 text-sm flex items-center gap-2"
+          >
+            <span
+              style={{
+                color: isMaybe ? "#d97706" : isYes ? "#16a34a" : "#374151",
+              }}
+              className="font-semibold"
+            >
+              {name}
+            </span>
+            <span className="font-bold text-gray-700">{count}</span>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
+const StatsPanel = ({ groups, assignments }) => {
+  if (!groups || !assignments) return null;
+  const yesNames = groups.yes ?? [];
+  if (yesNames.length === 0) return null;
+
+  const allCounts = computeYesAppearanceCounts(yesNames, assignments);
+  const ff5Counts = computeYesFirstFiveCounts(yesNames, assignments);
+
+  // Sort yes names by all-7 count descending
+  const sorted = [...yesNames].sort(
+    (a, b) => (allCounts[b] ?? 0) - (allCounts[a] ?? 0),
+  );
+
+  const stats = (countMap) => {
+    const vals = sorted.map((n) => countMap[n] ?? 0);
+    if (!vals.length) return { min: 0, max: 0, avg: "0" };
+    return {
+      min: Math.min(...vals),
+      max: Math.max(...vals),
+      avg: (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1),
+    };
+  };
+
+  const allStats = stats(allCounts);
+  const ff5Stats = stats(ff5Counts);
+
+  return (
+    <div className="mb-8 border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+        <h2 className="font-bold text-sm text-gray-700">
+          Distribution Stats — yes names only, on yes people's lists
+        </h2>
+      </div>
+      <div className="p-4">
+        <StatRow
+          label="All 7 slots"
+          countMap={allCounts}
+          sorted={sorted}
+          groups={groups}
+          avg={allStats.avg}
+          min={allStats.min}
+          max={allStats.max}
+        />
+        <StatRow
+          label="First 5 slots only"
+          countMap={ff5Counts}
+          sorted={sorted}
+          groups={groups}
+          avg={ff5Stats.avg}
+          min={ff5Stats.min}
+          max={ff5Stats.max}
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          Green = near average · Red = above average · Blue = below average
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const EmailPreview = ({
   name,
@@ -413,7 +614,13 @@ export default function App() {
     const result = buildAssignments(parsed.yes, parsed.maybe);
     setGroups(parsed);
     setAssignments(result);
-    downloadArchive(parsed, result, formatDate(selectedDate), linkText.trim());
+    downloadArchive(
+      parsed,
+      result,
+      emailText.trim() || null,
+      formatDate(selectedDate),
+      linkText.trim(),
+    );
   };
 
   const allNames = groups
@@ -512,6 +719,7 @@ export default function App() {
 
       {groups && (
         <>
+          <StatsPanel groups={groups} assignments={assignments} />
           <Section
             title="Yes"
             names={groups.yes}
