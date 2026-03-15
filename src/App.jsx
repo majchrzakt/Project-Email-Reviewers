@@ -391,7 +391,7 @@ const EmailPreview = ({
         )}
       </div>
       {expanded && (
-        <pre className="m-0 p-4 whitespace-pre-wrap break-words text-xs bg-white border-t border-gray-100 text-left">
+        <pre className="m-0 p-4 whitespace-pre-wrap wrap-break-word text-xs bg-white border-t border-gray-100 text-left">
           {filled}
         </pre>
       )}
@@ -430,26 +430,11 @@ export default function App() {
     link.length > 0 &&
     emailsText.trim().length > 0;
 
-  const canSendAll =
-    groups !== null &&
-    allNames.some((n) => emailMap[n]) &&
-    emailText.trim().length > 0 &&
-    selectedDate.length > 0 &&
-    link.length > 0;
-
-  const handleSendAll = () => {
-    for (const name of allNames) {
-      const email = emailMap[name];
-      if (!email || !emailText.trim()) continue;
-      const peers = assignments?.[name] ?? [];
-      const filled = applyTemplate(emailText, name, peers, formattedDate, link);
-      openMailto(email, getEmailSubject(formattedDate), filled);
-    }
-  };
-
   return (
     <div className="max-w-5xl mx-auto px-6 py-10 font-sans">
-      <h1 className="text-3xl font-bold mb-2">RSVP & Peer Review</h1>
+      <h1 className="text-3xl font-bold mb-2">
+        Create Review Groups & Generate Email Instructions
+      </h1>
       <p className="text-sm text-gray-500 mb-8">
         Paste data into each field or upload a file. Use tokens{" "}
         <code className="bg-gray-100 px-1 rounded">REVIEWER</code>,{" "}
@@ -462,7 +447,7 @@ export default function App() {
 
       <div className="grid grid-cols-4 gap-4 mb-6">
         <PasteOrFile
-          label="RSVP List"
+          label="Reviewers"
           value={rsvpText}
           onChange={setRsvpText}
           onFile={setRsvpText}
@@ -470,7 +455,15 @@ export default function App() {
           hint="yes / maybe sections, one name per line, end with 'end'"
         />
         <PasteOrFile
-          label="Email Template"
+          label="Reviewer Emails"
+          value={emailsText}
+          onChange={setEmailsText}
+          onFile={setEmailsText}
+          placeholder={"Alice:alice@school.edu\nBob:bob@school.edu"}
+          hint="Format: Name:email — upload reviewerEmails.txt"
+        />
+        <PasteOrFile
+          label="Email Script"
           value={emailText}
           onChange={setEmailText}
           onFile={setEmailText}
@@ -480,20 +473,12 @@ export default function App() {
           hint="Tokens: REVIEWER, PEER1–PEER7, DATE, LINK"
         />
         <PasteOrFile
-          label="Link"
+          label="Instructions Link"
           value={linkText}
           onChange={setLinkText}
           onFile={(text) => setLinkText(text.trim())}
           placeholder="https://..."
           hint="Paste a URL or upload link.txt"
-        />
-        <PasteOrFile
-          label="Reviewer Emails"
-          value={emailsText}
-          onChange={setEmailsText}
-          onFile={setEmailsText}
-          placeholder={"Alice:alice@school.edu\nBob:bob@school.edu"}
-          hint="Format: Name:email — upload reviewerEmails.txt"
         />
       </div>
 
