@@ -717,7 +717,7 @@ export default function App() {
         </button>
       </div>
 
-      {groups && (
+      {/* {groups && (
         <>
           <StatsPanel groups={groups} assignments={assignments} />
           <Section
@@ -737,7 +737,7 @@ export default function App() {
             yesNames={groups.yes}
           />
         </>
-      )}
+      )} */}
 
       {groups && emailText.trim() && (
         <div className="mt-10">
