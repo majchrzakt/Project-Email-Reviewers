@@ -1,16 +1,7 @@
 import { useState } from "react";
 
-// Assign 5 reviewers to each name such that each name appears
-// on the same number of lists and no one reviews themselves.
 const assignReviewers = (names) => {
-  const n = names.length;
   const reviewersPerPerson = 5;
-
-  // Each person appears on exactly (n * reviewersPerPerson / n) = 5 lists
-  // We build a pool where every name appears exactly reviewersPerPerson times,
-  // shuffle it, then assign greedily avoiding self-assignment.
-
-  // Build a shuffled pool with each name repeated reviewersPerPerson times
   const shuffle = (arr) => {
     const a = [...arr];
     for (let i = a.length - 1; i > 0; i--) {
@@ -19,41 +10,30 @@ const assignReviewers = (names) => {
     }
     return a;
   };
-
   const MAX_ATTEMPTS = 100;
-
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const pool = shuffle(
       names.flatMap((name) => Array(reviewersPerPerson).fill(name)),
     );
-
     const assignments = Object.fromEntries(names.map((n) => [n, []]));
     let failed = false;
-
     for (const reviewer of pool) {
-      // Find a name that needs a reviewer and isn't the reviewer themselves
-      // and doesn't already have this reviewer
       const candidates = names.filter(
         (name) =>
           name !== reviewer &&
           assignments[name].length < reviewersPerPerson &&
           !assignments[name].includes(reviewer),
       );
-
       if (candidates.length === 0) {
         failed = true;
         break;
       }
-
-      // Pick the candidate with fewest reviewers so far (greedy balancing)
       candidates.sort((a, b) => assignments[a].length - assignments[b].length);
       assignments[candidates[0]].push(reviewer);
     }
-
     if (!failed) return assignments;
   }
-
-  return null; // failed after MAX_ATTEMPTS (very unlikely with n >= 6)
+  return null;
 };
 
 export default function App() {
@@ -61,7 +41,7 @@ export default function App() {
   const [assignments, setAssignments] = useState(null);
 
   const parseFile = (text) => {
-    const result = { yes: [], maybe: [], no: [] };
+    const result = { yes: [], maybe: [] };
     let current = null;
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
@@ -75,7 +55,7 @@ export default function App() {
         continue;
       }
       if (trimmed === "no") {
-        current = "no";
+        current = null;
         continue;
       }
       if (current) result[current].push(trimmed);
@@ -137,7 +117,6 @@ export default function App() {
         <>
           <Section title="Yes" names={groups.yes} color="#16a34a" />
           <Section title="Maybe" names={groups.maybe} color="#d97706" />
-          <Section title="No" names={groups.no} color="#dc2626" />
         </>
       )}
     </div>
