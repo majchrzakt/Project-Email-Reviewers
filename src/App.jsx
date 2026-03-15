@@ -186,14 +186,68 @@ const parseRsvpText = (text) => {
   return result;
 };
 
+const parseEmailsText = (text) => {
+  const map = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) continue;
+    const name = trimmed.slice(0, colonIdx).trim();
+    const email = trimmed.slice(colonIdx + 1).trim();
+    if (name && email) map[name] = email;
+  }
+  return map;
+};
+
 const applyTemplate = (template, reviewer, peers, formattedDate, link) => {
-  let result = template.replace(/REVIEWER/gi, reviewer);
+  let result = template.replace(/REVIEWER/g, reviewer);
   peers.forEach((peer, i) => {
-    result = result.replace(new RegExp(`PEER${i + 1}`, "gi"), peer);
+    result = result.replace(new RegExp(`PEER${i + 1}`, "g"), peer);
   });
-  if (formattedDate) result = result.replace(/DATE/gi, formattedDate);
-  if (link) result = result.replace(/LINK/gi, link);
+  if (formattedDate) result = result.replace(/DATE/g, formattedDate);
+  if (link) result = result.replace(/LINK/g, link);
   return result;
+};
+
+const getEmailSubject = (formattedDate) =>
+  formattedDate
+    ? `Peer Reviews Due ${formattedDate}`
+    : "Peer Review Assignment";
+
+const downloadArchive = (groups, assignments, formattedDate, link) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const lines = [];
+  lines.push("RSVP & Peer Review Archive");
+  lines.push(`Generated: ${new Date().toLocaleString()}`);
+  if (formattedDate) lines.push(`Due Date: ${formattedDate}`);
+  if (link) lines.push(`Link: ${link}`);
+  lines.push("");
+  lines.push("=".repeat(50));
+  for (const { title, names } of [
+    { title: "YES", names: groups.yes },
+    { title: "MAYBE", names: groups.maybe },
+  ]) {
+    if (!names.length) continue;
+    lines.push("");
+    lines.push(`--- ${title} ---`);
+    for (const name of names) {
+      const peers = assignments?.[name] ?? [];
+      lines.push(`${name}: ${peers.join(", ")}`);
+    }
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `peer-review-${timestamp}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const openMailto = (email, subject, body) => {
+  const url = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(url);
 };
 
 const PasteOrFile = ({ label, value, onChange, onFile, placeholder, hint }) => {
@@ -220,14 +274,13 @@ const PasteOrFile = ({ label, value, onChange, onFile, placeholder, hint }) => {
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
-          setFileName(null); // clear file name if user edits manually
+          setFileName(null);
         }}
         placeholder={placeholder}
         spellCheck={false}
       />
+      <span className="text-xs text-gray-500">or upload file:</span>
       <div className="mt-1.5 flex items-center gap-2.5">
-        <span className="text-xs text-gray-500">or upload file:</span>
-        {/* Hidden real file input */}
         <input
           ref={inputRef}
           type="file"
@@ -235,14 +288,12 @@ const PasteOrFile = ({ label, value, onChange, onFile, placeholder, hint }) => {
           className="hidden"
           onChange={handleFile}
         />
-        {/* Styled button that triggers it */}
         <button
           onClick={() => inputRef.current?.click()}
           className="px-3 py-1 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer transition-colors"
         >
           Choose File
         </button>
-        {/* File name display */}
         <span className="text-xs text-gray-500 truncate max-w-36">
           {fileName ?? "No file chosen"}
         </span>
@@ -298,18 +349,47 @@ const Section = ({
   </div>
 );
 
-const EmailPreview = ({ name, template, assignments, formattedDate, link }) => {
+const EmailPreview = ({
+  name,
+  template,
+  assignments,
+  formattedDate,
+  link,
+  emailMap,
+}) => {
   const [expanded, setExpanded] = useState(false);
   const peers = assignments?.[name] ?? [];
   const filled = applyTemplate(template, name, peers, formattedDate, link);
+  const email = emailMap?.[name];
+  const subject = getEmailSubject(formattedDate);
+
   return (
     <div className="mb-3 border border-gray-200 rounded-lg overflow-hidden">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full text-left px-4 py-2.5 bg-gray-50 border-none cursor-pointer font-semibold text-sm hover:bg-gray-100 transition-colors"
-      >
-        {expanded ? "▾" : "▸"} {name}
-      </button>
+      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 text-left font-semibold text-sm cursor-pointer bg-transparent border-none hover:text-blue-600 transition-colors"
+        >
+          {expanded ? "▾" : "▸"} {name}
+          {email && (
+            <span className="ml-2 text-xs text-gray-400 font-normal">
+              {email}
+            </span>
+          )}
+        </button>
+        {email ? (
+          <button
+            onClick={() => openMailto(email, subject, filled)}
+            className="ml-4 px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer transition-colors whitespace-nowrap"
+          >
+            ✉ Open in Mail
+          </button>
+        ) : (
+          <span className="ml-4 text-xs text-gray-300 italic">
+            no email on file
+          </span>
+        )}
+      </div>
       {expanded && (
         <pre className="m-0 p-4 whitespace-pre-wrap break-words text-xs bg-white border-t border-gray-100 text-left">
           {filled}
@@ -323,14 +403,17 @@ export default function App() {
   const [rsvpText, setRsvpText] = useState("");
   const [emailText, setEmailText] = useState("");
   const [linkText, setLinkText] = useState("");
+  const [emailsText, setEmailsText] = useState("");
   const [groups, setGroups] = useState(null);
   const [assignments, setAssignments] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
 
   const handleGenerate = () => {
     const parsed = parseRsvpText(rsvpText);
+    const result = buildAssignments(parsed.yes, parsed.maybe);
     setGroups(parsed);
-    setAssignments(buildAssignments(parsed.yes, parsed.maybe));
+    setAssignments(result);
+    downloadArchive(parsed, result, formatDate(selectedDate), linkText.trim());
   };
 
   const allNames = groups
@@ -338,7 +421,31 @@ export default function App() {
     : [];
   const formattedDate = formatDate(selectedDate);
   const link = linkText.trim();
-  const canGenerate = rsvpText.trim().length > 0;
+  const emailMap = parseEmailsText(emailsText);
+
+  const canGenerate =
+    rsvpText.trim().length > 0 &&
+    emailText.trim().length > 0 &&
+    selectedDate.length > 0 &&
+    link.length > 0 &&
+    emailsText.trim().length > 0;
+
+  const canSendAll =
+    groups !== null &&
+    allNames.some((n) => emailMap[n]) &&
+    emailText.trim().length > 0 &&
+    selectedDate.length > 0 &&
+    link.length > 0;
+
+  const handleSendAll = () => {
+    for (const name of allNames) {
+      const email = emailMap[name];
+      if (!email || !emailText.trim()) continue;
+      const peers = assignments?.[name] ?? [];
+      const filled = applyTemplate(emailText, name, peers, formattedDate, link);
+      openMailto(email, getEmailSubject(formattedDate), filled);
+    }
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10 font-sans">
@@ -353,15 +460,14 @@ export default function App() {
         template.
       </p>
 
-      {/* Three paste/file inputs */}
-      <div className="grid grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <PasteOrFile
           label="RSVP List"
           value={rsvpText}
           onChange={setRsvpText}
           onFile={setRsvpText}
           placeholder={"yes\nAlice\nBob\nmaybe\nCarol\nend"}
-          hint="Format: yes / maybe sections, one name per line, end with 'end'"
+          hint="yes / maybe sections, one name per line, end with 'end'"
         />
         <PasteOrFile
           label="Email Template"
@@ -381,9 +487,16 @@ export default function App() {
           placeholder="https://..."
           hint="Paste a URL or upload link.txt"
         />
+        <PasteOrFile
+          label="Reviewer Emails"
+          value={emailsText}
+          onChange={setEmailsText}
+          onFile={setEmailsText}
+          placeholder={"Alice:alice@school.edu\nBob:bob@school.edu"}
+          hint="Format: Name:email — upload reviewerEmails.txt"
+        />
       </div>
 
-      {/* Date + Generate */}
       <div className="flex gap-6 items-end mb-10 flex-wrap">
         <div>
           <label className="block mb-1.5 font-semibold text-sm text-gray-700">
@@ -408,11 +521,10 @@ export default function App() {
               : "bg-gray-300 cursor-not-allowed"
           }`}
         >
-          Generate Assignments
+          Generate Review Emails
         </button>
       </div>
 
-      {/* RSVP sections */}
       {groups && (
         <>
           <Section
@@ -434,12 +546,11 @@ export default function App() {
         </>
       )}
 
-      {/* Email previews */}
       {groups && emailText.trim() && (
         <div className="mt-10">
-          <h2 className="text-xl font-bold border-b-2 border-gray-800 pb-1.5 mb-4">
-            Email Previews
-          </h2>
+          <div className="border-b-2 border-gray-800 pb-1.5 mb-4">
+            <h2 className="text-xl font-bold">Email Previews</h2>
+          </div>
           {allNames.map((name) => (
             <EmailPreview
               key={name}
@@ -448,6 +559,7 @@ export default function App() {
               assignments={assignments}
               formattedDate={formattedDate}
               link={link}
+              emailMap={emailMap}
             />
           ))}
         </div>
