@@ -23,8 +23,9 @@ npm run dev
 ## Deploy to your own GitHub Pages
 
 1. Fork the repo
-2. Update `base` in `vite.config.js` to `/your-repo-name/`
-3. Run `npm run deploy`
+2. In your forked repo, go to **Settings → Pages** and set the source branch to `gh-pages`
+3. Update `base` in `vite.config.js` to `/your-repo-name/`
+4. Run `npm run deploy`
 
 ## Tech stack
 
