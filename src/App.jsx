@@ -667,7 +667,7 @@ export default function App() {
           onChange={setEmailsText}
           onFile={setEmailsText}
           placeholder={"Alice:alice@school.edu\nBob:bob@school.edu"}
-          hint="Format: Name:email — upload reviewerEmails.txt"
+          hint="Format: Name:email, one per line"
         />
         <PasteOrFile
           label="Email Script"
@@ -685,7 +685,6 @@ export default function App() {
           onChange={setLinkText}
           onFile={(text) => setLinkText(text.trim())}
           placeholder="https://..."
-          hint="Paste a URL or upload link.txt"
         />
       </div>
 
