@@ -16,14 +16,12 @@ const assignMaybePersonReviewers = (yesNames, maybeNames, targetTotal = 7) => {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const temp = Object.fromEntries(maybeNames.map((n) => [n, []]));
 
-    // Phase 1: every maybe person gets all other maybe people on their list
     for (const person of maybeNames) {
       for (const other of maybeNames) {
         if (other !== person) temp[person].push(other);
       }
     }
 
-    // Phase 2: fill remaining slots to targetTotal with yes people, equally distributed
     const remaining = targetTotal - (maybeNames.length - 1);
     if (remaining <= 0) return temp;
 
@@ -50,9 +48,7 @@ const assignMaybePersonReviewers = (yesNames, maybeNames, targetTotal = 7) => {
   return null;
 };
 
-// All spread checks only count yes names as reviewers, on yes people's lists only
 const computeSpread = (yesNames, combined) => {
-  // Tier 1: yes names in first 3 slots (weighted 100x)
   const ff3 = yesNames.reduce((acc, name) => {
     for (const r of (combined[name] ?? []).slice(0, 3)) {
       if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
@@ -62,7 +58,6 @@ const computeSpread = (yesNames, combined) => {
   const ff3Vals = yesNames.map((n) => ff3[n] ?? 0);
   const ff3Spread = Math.max(...ff3Vals) - Math.min(...ff3Vals);
 
-  // Tier 2: yes names in first 5 slots (weighted 10x)
   const ff5 = yesNames.reduce((acc, name) => {
     for (const r of (combined[name] ?? []).slice(0, 5)) {
       if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
@@ -72,7 +67,6 @@ const computeSpread = (yesNames, combined) => {
   const ff5Vals = yesNames.map((n) => ff5[n] ?? 0);
   const ff5Spread = Math.max(...ff5Vals) - Math.min(...ff5Vals);
 
-  // Tier 3: yes names in all 7 slots (weighted 1x)
   const all = yesNames.reduce((acc, name) => {
     for (const r of combined[name] ?? []) {
       if (yesNames.includes(r)) acc[r] = (acc[r] ?? 0) + 1;
@@ -90,9 +84,7 @@ const runOneBuild = (yesNames, maybeNames) => {
   const assignments = Object.fromEntries(yesNames.map((n) => [n, []]));
   const n = yesNames.length;
 
-  // Phase 1: 3 rounds of cyclic rotation on freshly shuffled orderings
-  // Shuffling the order each round breaks the pattern while keeping perfect balance
-  const usedPairs = new Set(); // track reviewer→person pairs to avoid duplicates
+  const usedPairs = new Set();
   for (let round = 0; round < 3; round++) {
     const shuffledOrder = shuffle([...yesNames]);
     const offsets = shuffle([...Array(n - 1).keys()].map((i) => i + 1));
@@ -126,7 +118,6 @@ const runOneBuild = (yesNames, maybeNames) => {
     if (!placed) return null;
   }
 
-  // Phase 2: maybe passes
   const maybePasses = Math.min(maybeNames.length, 2);
   for (let slot = 0; slot < maybePasses; slot++) {
     const usageCounts = Object.fromEntries(maybeNames.map((n) => [n, 0]));
@@ -145,7 +136,6 @@ const runOneBuild = (yesNames, maybeNames) => {
     }
   }
 
-  // Phase 3: fill remaining slots to 7
   const remainingSlots = 7 - (3 + maybePasses);
   for (let slot = 0; slot < remainingSlots; slot++) {
     const usageCounts = Object.fromEntries(allNames.map((n) => [n, 0]));
@@ -189,7 +179,6 @@ const buildAssignments = (yesNames, maybeNames) => {
   return best;
 };
 
-// Stats: count yes-name appearances on yes people's lists only
 const computeYesAppearanceCounts = (yesNames, assignments) => {
   const counts = Object.fromEntries(yesNames.map((n) => [n, 0]));
   for (const name of yesNames) {
@@ -348,7 +337,69 @@ const openMailto = (email, subject, body) => {
   window.open(url);
 };
 
-const PasteOrFile = ({ label, value, onChange, onFile, placeholder, hint }) => {
+const EXAMPLE_TEMPLATE = `Hi REVIEWER,
+
+Please review the projects of PEER1, PEER2, PEER3, PEER4, and PEER5 by DATE.
+
+If one of these students has not posted their code or videos by midnight on the day before this review is due, please review PEER6's project.
+
+If a second student in the initial group has not posted their code or videos, please review PEER7's project.
+
+If work is not posted for these alternative students, please review other student projects of your choosing until you reach a minimum of five peer reviews.
+
+You're welcome to do more reviews, but only five are required. See this Moodle page for the link to the review form and for more details.
+
+LINK
+
+Warm regards,
+Tina`;
+
+const ExampleTemplateModal = ({ onClose }) => (
+  <div
+    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+    onClick={onClose}
+  >
+    <div
+      className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <h2 className="font-bold text-base text-gray-800">
+          Example Email Template
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none cursor-pointer bg-transparent border-none"
+        >
+          ×
+        </button>
+      </div>
+      <div className="overflow-y-auto p-5 flex-1">
+        <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap break-words leading-relaxed">
+          {EXAMPLE_TEMPLATE}
+        </pre>
+      </div>
+      <div className="px-5 py-4 border-t border-gray-200 flex justify-end">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const PasteOrFile = ({
+  label,
+  value,
+  onChange,
+  onFile,
+  placeholder,
+  hint,
+  onShowExample,
+}) => {
   const inputRef = useRef(null);
   const [fileName, setFileName] = useState(null);
 
@@ -364,9 +415,17 @@ const PasteOrFile = ({ label, value, onChange, onFile, placeholder, hint }) => {
 
   return (
     <div className="mb-5">
-      <label className="block mb-1.5 font-semibold text-sm text-gray-700">
-        {label}
-      </label>
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="font-semibold text-sm text-gray-700">{label}</label>
+        {onShowExample && (
+          <button
+            onClick={onShowExample}
+            className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer bg-transparent border-none font-medium transition-colors"
+          >
+            see example
+          </button>
+        )}
+      </div>
       <textarea
         className="w-full min-h-28 p-2.5 text-xs font-mono border border-gray-300 rounded-lg resize-y focus:outline-none focus:ring-2 focus:ring-blue-400"
         value={value}
@@ -408,6 +467,8 @@ const Section = ({
   assignments,
   maybeNames,
   yesNames,
+  highlighted,
+  onHighlight,
 }) => (
   <div className="mb-6">
     <h2
@@ -421,7 +482,16 @@ const Section = ({
         const peers = assignments?.[name] ?? [];
         return (
           <li key={name} className="py-1.5 text-base">
-            <strong>{name}</strong>
+            <button
+              onClick={() => onHighlight(highlighted === name ? null : name)}
+              className={`font-bold cursor-pointer border-none bg-transparent p-0 transition-colors ${
+                highlighted === name
+                  ? "text-blue-600 underline"
+                  : "text-gray-900 hover:text-blue-500"
+              }`}
+            >
+              {name}
+            </button>
             {peers.length > 0 && (
               <span className="text-gray-500 ml-3 text-sm">
                 reviews:{" "}
@@ -430,11 +500,19 @@ const Section = ({
                     {i > 0 && ", "}
                     <span
                       style={{
-                        color: maybeNames?.includes(r)
-                          ? "#d97706"
-                          : yesNames?.includes(r)
-                            ? "#16a34a"
-                            : "inherit",
+                        color:
+                          highlighted === r
+                            ? "#2563eb"
+                            : maybeNames?.includes(r)
+                              ? "#d97706"
+                              : yesNames?.includes(r)
+                                ? "#16a34a"
+                                : "inherit",
+                        fontWeight: highlighted === r ? "700" : "400",
+                        backgroundColor:
+                          highlighted === r ? "#dbeafe" : "transparent",
+                        borderRadius: highlighted === r ? "3px" : "0",
+                        padding: highlighted === r ? "0 2px" : "0",
                       }}
                     >
                       {r}
@@ -497,8 +575,6 @@ const StatsPanel = ({ groups, assignments }) => {
 
   const allCounts = computeYesAppearanceCounts(yesNames, assignments);
   const ff5Counts = computeYesFirstFiveCounts(yesNames, assignments);
-
-  // Sort yes names by all-7 count descending
   const sorted = [...yesNames].sort(
     (a, b) => (allCounts[b] ?? 0) - (allCounts[a] ?? 0),
   );
@@ -608,6 +684,9 @@ export default function App() {
   const [groups, setGroups] = useState(null);
   const [assignments, setAssignments] = useState(null);
   const [selectedDate, setSelectedDate] = useState("");
+  const [showExampleModal, setShowExampleModal] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [highlighted, setHighlighted] = useState(null);
 
   const handleGenerate = () => {
     const parsed = parseRsvpText(rsvpText);
@@ -639,6 +718,10 @@ export default function App() {
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10 font-sans">
+      {showExampleModal && (
+        <ExampleTemplateModal onClose={() => setShowExampleModal(false)} />
+      )}
+
       <h1 className="text-3xl font-bold mb-2">
         Create Review Groups & Generate Email Instructions
       </h1>
@@ -680,6 +763,7 @@ export default function App() {
             "Hi REVIEWER,\n\nPlease review PEER1, PEER2...\nDue: DATE\nLink: LINK"
           }
           hint="Tokens: REVIEWER, PEER1–PEER7, DATE, LINK"
+          onShowExample={() => setShowExampleModal(true)}
         />
         <PasteOrFile
           label="Instructions Link"
@@ -719,7 +803,18 @@ export default function App() {
         </button>
       </div>
 
-      {/* {groups && (
+      {groups && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowStats((v) => !v)}
+            className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+          >
+            {showStats ? "▾ Hide Stats" : "▸ Show Stats"}
+          </button>
+        </div>
+      )}
+
+      {groups && showStats && (
         <>
           <StatsPanel groups={groups} assignments={assignments} />
           <Section
@@ -729,6 +824,8 @@ export default function App() {
             assignments={assignments}
             maybeNames={groups.maybe}
             yesNames={groups.yes}
+            highlighted={highlighted}
+            onHighlight={setHighlighted}
           />
           <Section
             title="Maybe"
@@ -737,9 +834,11 @@ export default function App() {
             assignments={assignments}
             maybeNames={groups.maybe}
             yesNames={groups.yes}
+            highlighted={highlighted}
+            onHighlight={setHighlighted}
           />
         </>
-      )} */}
+      )}
 
       {groups && emailText.trim() && (
         <div className="mt-10">
